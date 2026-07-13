@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>재무제표 이상징후 탐지 — Audit Analytics</title>
+<style>
+  :root{
+    --bg:#F2F4F6;
+    --surface:#FFFFFF;
+    --surface-alt:#F4F6F8;
+    --ink:#191F28;
+    --ink-muted:#6B7684;
+    --border:#E5E8EB;
+    --accent:#3182F6;
+    --accent-soft:#EBF2FE;
+    --series-1:#3182F6;
+    --series-2:#FFA000;
+    --series-3:#00C471;
+    --pos:#00C471;
+    --neg:#F04452;
+    --warn:#FFA000;
+    --warn-soft:#FFF4E0;
+    --neg-soft:#FDEBEC;
+    --shadow: 0 2px 6px rgba(25,31,40,0.04), 0 8px 20px -10px rgba(25,31,40,0.08);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0A0C10; --surface:#191F28; --surface-alt:#20272F; --ink:#F2F4F6; --ink-muted:#8B95A1;
+      --border:#2A313C; --accent:#4593FC; --accent-soft:#1C2B44;
+      --series-1:#4593FC; --series-2:#FFB84D; --series-3:#2ED890; --pos:#2ED890; --neg:#FF6B6B;
+      --warn:#FFB84D; --warn-soft:#3A2E13; --neg-soft:#3A1518;
+      --shadow: 0 2px 6px rgba(0,0,0,0.35), 0 8px 20px -10px rgba(0,0,0,0.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0A0C10; --surface:#191F28; --surface-alt:#20272F; --ink:#F2F4F6; --ink-muted:#8B95A1;
+    --border:#2A313C; --accent:#4593FC; --accent-soft:#1C2B44;
+    --series-1:#4593FC; --series-2:#FFB84D; --series-3:#2ED890; --pos:#2ED890; --neg:#FF6B6B;
+    --warn:#FFB84D; --warn-soft:#3A2E13; --neg-soft:#3A1518;
+    --shadow: 0 2px 6px rgba(0,0,0,0.35), 0 8px 20px -10px rgba(0,0,0,0.5);
+  }
+  :root[data-theme="light"]{
+    --bg:#F2F4F6; --surface:#FFFFFF; --surface-alt:#F4F6F8; --ink:#191F28; --ink-muted:#6B7684;
+    --border:#E5E8EB; --accent:#3182F6; --accent-soft:#EBF2FE;
+    --series-1:#3182F6; --series-2:#FFA000; --series-3:#00C471; --pos:#00C471; --neg:#F04452;
+    --warn:#FFA000; --warn-soft:#FFF4E0; --neg-soft:#FDEBEC;
+    --shadow: 0 2px 6px rgba(25,31,40,0.04), 0 8px 20px -10px rgba(25,31,40,0.08);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",-apple-system,"Segoe UI",sans-serif;
+    font-variant-numeric: tabular-nums;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
+  button{font-family:inherit;}
+
+  .wrap{max-width:1080px; margin:0 auto; padding:48px 24px 64px;}
+
+  header.masthead{ display:flex; flex-direction:column; gap:10px; padding-bottom:8px; margin-bottom:32px; }
+  .eyebrow{
+    display:inline-flex; width:fit-content; font-size:12.5px; letter-spacing:-.01em;
+    color:var(--accent); font-weight:700; background:var(--accent-soft); padding:5px 12px; border-radius:999px;
+  }
+  h1{ margin:0; font-size:clamp(26px,3.6vw,34px); font-weight:800; letter-spacing:-.02em; text-wrap:balance; }
+  .subtitle{color:var(--ink-muted); font-size:15px; margin-top:2px; font-weight:500;}
+  .nav-link{font-size:13.5px; font-weight:700; color:var(--accent); text-decoration:none; margin-top:6px;}
+  .nav-link:hover{text-decoration:underline;}
+
+  section{margin-bottom:40px;}
+  .section-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap;}
+  .section-head h2{font-size:16px; margin:0; font-weight:700;}
+  .section-head .hint{font-size:12.5px; color:var(--ink-muted);}
+
+  .search-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:20px;
+    padding:24px 24px; box-shadow:var(--shadow);
+  }
+  .search-row{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;}
+  .search-box{position:relative; flex:1 1 320px; min-width:240px;}
+  .search-box input[type="text"]{
+    width:100%; padding:12px 16px; font-size:15px; border-radius:14px;
+    border:1px solid var(--border); background:var(--surface-alt); color:var(--ink);
+    outline:none; font-weight:500; transition:border-color .12s ease, background .12s ease;
+  }
+  .search-box input[type="text"]:focus{border-color:var(--accent); background:var(--surface);}
+  .suggestions{
+    position:absolute; left:0; right:0; top:calc(100% + 8px); z-index:20;
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    box-shadow:var(--shadow); max-height:280px; overflow-y:auto; display:none; padding:6px;
+  }
+  .suggestions.open{display:block;}
+  .suggestion-item{
+    display:flex; justify-content:space-between; gap:10px; align-items:center;
+    padding:10px 12px; cursor:pointer; font-size:14px; border-radius:10px; font-weight:500;
+  }
+  .suggestion-item:hover, .suggestion-item.active{background:var(--accent-soft);}
+  .suggestion-item .code{color:var(--ink-muted); font-size:11.5px;}
+  .suggestion-empty{padding:14px; font-size:13px; color:var(--ink-muted);}
+
+  .year-fields{display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--ink-muted); font-weight:600;}
+  .year-fields input{
+    width:76px; padding:12px 10px; font-size:15px; border-radius:14px;
+    border:1px solid var(--border); background:var(--surface-alt); color:var(--ink); text-align:center; font-weight:600;
+  }
+  .btn-primary{
+    padding:12px 22px; font-size:15px; font-weight:700; border-radius:14px; border:none;
+    background:var(--accent); color:#fff; cursor:pointer; transition:filter .12s ease, transform .05s ease;
+  }
+  .btn-primary:disabled{opacity:.4; cursor:not-allowed;}
+  .btn-primary:not(:disabled):hover{filter:brightness(1.06);}
+  .btn-primary:not(:disabled):active{transform:scale(.98);}
+
+  .chip{
+    display:inline-flex; align-items:center; gap:7px; padding:7px 14px; border-radius:999px;
+    background:var(--accent-soft); font-size:13.5px; font-weight:700; color:var(--ink); margin-top:16px;
+  }
+  .chip .code{color:var(--ink-muted); font-weight:500; font-size:11.5px;}
+  .search-hint{font-size:12.5px; color:var(--ink-muted); margin-top:12px; font-weight:500;}
+
+  .empty-state, .error-banner{
+    background:var(--surface); border:1px dashed var(--border); border-radius:20px;
+    padding:40px 20px; text-align:center; color:var(--ink-muted); font-size:14px; font-weight:500;
+  }
+  .error-banner{border-style:solid; border-color:var(--neg); color:var(--neg); text-align:left;}
+  .loading-row{display:flex; align-items:center; gap:10px; color:var(--ink-muted); font-size:14px; padding:16px 4px; font-weight:500;}
+  .spinner{
+    width:16px; height:16px; border-radius:50%; border:2.5px solid var(--border);
+    border-top-color:var(--accent); animation:spin .7s linear infinite; flex:none;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg);} }
+  @media (prefers-reduced-motion: reduce){ .spinner{animation:none;} }
+
+  #resultsArea{display:none;}
+  #resultsArea.visible{display:block;}
+
+  /* flag summary */
+  .flag-banner{
+    border-radius:20px; padding:22px 24px; box-shadow:var(--shadow); margin-bottom:40px;
+    border:1px solid var(--border); background:var(--surface);
+  }
+  .flag-banner.ok{ border-color: color-mix(in srgb, var(--pos) 40%, var(--border)); }
+  .flag-banner.warn{ border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }
+  .flag-banner-head{display:flex; align-items:center; gap:10px; font-weight:800; font-size:16px;}
+  .flag-dot{width:10px;height:10px;border-radius:50%;}
+  .flag-dot.ok{background:var(--pos);}
+  .flag-dot.warn{background:var(--neg);}
+  .flag-list{list-style:none; margin:14px 0 0; padding:0; display:flex; flex-direction:column; gap:10px;}
+  .flag-item{
+    display:flex; gap:10px; align-items:flex-start; font-size:13.5px; padding:10px 12px; border-radius:12px;
+  }
+  .flag-item.high{background:var(--neg-soft);}
+  .flag-item.medium{background:var(--warn-soft);}
+  .flag-badge{
+    flex:none; font-size:10.5px; font-weight:800; padding:2px 8px; border-radius:999px; color:#fff;
+  }
+  .flag-badge.high{background:var(--neg);}
+  .flag-badge.medium{background:var(--warn);}
+  .flag-text b{font-weight:700;}
+  .flag-text .yr{color:var(--ink-muted); font-weight:600; margin-right:4px;}
+  .flag-none{color:var(--ink-muted); font-size:13.5px; margin-top:12px;}
+
+  /* KPI cards */
+  .kpi-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(210px,1fr)); gap:14px;}
+  .kpi-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:20px;
+    padding:20px 22px; box-shadow:var(--shadow);
+  }
+  .kpi-card .kpi-label{font-size:12.5px; color:var(--ink-muted); font-weight:700;}
+  .kpi-card .kpi-value{font-size:26px; font-weight:800; letter-spacing:-.02em; margin-top:6px;}
+  .kpi-card .kpi-sub{font-size:12px; color:var(--ink-muted); font-weight:500; margin-top:4px;}
+  .delta{font-size:11.5px; font-weight:700; padding:2px 7px; border-radius:999px; margin-left:6px;}
+  .delta.up{color:var(--pos); background:color-mix(in srgb, var(--pos) 14%, transparent);}
+  .delta.down{color:var(--neg); background:color-mix(in srgb, var(--neg) 14%, transparent);}
+
+  /* charts */
+  .chart-grid{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  @media (max-width:760px){ .chart-grid{grid-template-columns:1fr;} }
+  .chart-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:20px;
+    padding:20px 22px 16px; box-shadow:var(--shadow);
+  }
+  .chart-card h3{margin:0 0 2px; font-size:14.5px; font-weight:800; letter-spacing:-.01em;}
+  .chart-card .chart-sub{font-size:11.5px; color:var(--ink-muted); margin-bottom:10px; font-weight:500;}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--ink-muted); margin-top:8px; font-weight:600;}
+  .legend span{display:inline-flex; align-items:center; gap:5px;}
+  .legend i{width:9px;height:9px;border-radius:3px; display:inline-block;}
+  svg text{font-family:inherit; fill:var(--ink);}
+  .axis-label{fill:var(--ink-muted) !important; font-size:10.5px;}
+  .grid-line{stroke:var(--border);}
+  .badge-row{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
+  .stat-badge{
+    font-size:11.5px; font-weight:700; padding:5px 11px; border-radius:999px;
+    background:var(--surface-alt); color:var(--ink-muted); border:1px solid var(--border);
+  }
+  .stat-badge.strong{color:var(--ink); background:var(--accent-soft); border-color:transparent;}
+  .conformity-close{color:var(--pos);}
+  .conformity-accept{color:var(--series-2);}
+  .conformity-marginal{color:var(--warn);}
+  .conformity-non{color:var(--neg);}
+
+  /* table */
+  .table-scroll{overflow-x:auto; border:1px solid var(--border); border-radius:20px; background:var(--surface); box-shadow:var(--shadow);}
+  table{border-collapse:collapse; width:100%; min-width:920px; font-size:13px;}
+  thead th{
+    position:sticky; top:0; background:var(--surface-alt); color:var(--ink-muted);
+    text-align:right; font-weight:700; font-size:11.5px; letter-spacing:.02em;
+    padding:12px 14px; border-bottom:1px solid var(--border); white-space:nowrap;
+  }
+  thead th:first-child, thead th:nth-child(2){text-align:left;}
+  tbody td{padding:11px 14px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; font-weight:500;}
+  tbody td:first-child, tbody td:nth-child(2){text-align:left;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--surface-alt);}
+  .tag{ font-size:10.5px; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent); font-weight:700; }
+  .num-neg{color:var(--neg);}
+  .cell-empty{color:var(--ink-muted);}
+  .flag-mini{ font-size:10px; font-weight:800; padding:1px 6px; border-radius:999px; color:#fff; margin-left:4px; }
+  .flag-mini.high{background:var(--neg);}
+  .flag-mini.medium{background:var(--warn);}
+
+  footer{
+    margin-top:36px; padding-top:16px; border-top:1px solid var(--border);
+    font-size:11.5px; color:var(--ink-muted); display:flex; flex-direction:column; gap:4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <div class="eyebrow">Audit Analytics · DART Open API</div>
+    <h1>재무제표 이상징후 탐지</h1>
+    <div class="subtitle">회사명을 검색하면 다년간 재무비율 급변, 발생액 이상치, 벤포드 법칙 적합도를 스크리닝합니다.</div>
+    <a class="nav-link" href="materiality.html">중요성금액 계산기 &amp; 표본추출 도구 →</a>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <h2>회사 검색</h2>
+      <span class="hint" id="corpListStatus">상장사 목록 불러오는 중…</span>
+    </div>
+    <div class="search-card">
+      <div class="search-row">
+        <div class="search-box">
+          <label for="searchInput" class="sr-only">회사명 검색</label>
+          <input type="text" id="searchInput" placeholder="회사명을 입력하세요 (예: 삼성전자)" autocomplete="off" disabled>
+          <div class="suggestions" id="suggestions"></div>
+        </div>
+        <div class="year-fields">
+          <span>기간</span>
+          <input type="number" id="startYear" aria-label="시작 연도">
+          <span>–</span>
+          <input type="number" id="endYear" aria-label="종료 연도">
+        </div>
+        <button class="btn-primary" id="analyzeBtn" disabled>분석하기</button>
+      </div>
+      <div id="chipRow"></div>
+      <div class="search-hint">최근 5개년 이상 조회할수록 벤포드 법칙 표본이 충분해져 분석 신뢰도가 높아집니다.</div>
+    </div>
+  </section>
+
+  <div id="loadingRow" class="loading-row" style="display:none;">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>DART에서 재무제표를 불러와 분석하는 중…</span>
+  </div>
+  <div id="errorBanner" class="error-banner" style="display:none;"></div>
+  <div id="emptyState" class="empty-state">회사를 검색해 선택한 뒤 <b>분석하기</b>를 눌러주세요.</div>
+
+  <div id="resultsArea">
+    <div id="flagBanner" class="flag-banner"></div>
+
+    <section>
+      <div class="section-head">
+        <h2 id="kpiHeading">최신 연도 스냅샷</h2>
+        <span class="hint" id="kpiHint"></span>
+      </div>
+      <div class="kpi-grid" id="kpiGrid"></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>이상징후 추이 &amp; 벤포드 법칙</h2>
+        <span class="hint" id="trendHint"></span>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <h3>회전율 추이</h3>
+          <div class="chart-sub">매출채권회전율 · 재고자산회전율 (배)</div>
+          <svg id="turnoverChart" viewBox="0 0 460 220" role="img" aria-label="회전율 추이 선그래프"></svg>
+          <div id="turnoverLegend" class="legend"></div>
+        </div>
+        <div class="chart-card">
+          <h3>벤포드 법칙 — 첫째자리 숫자 분포</h3>
+          <div class="chart-sub" id="benfordSub">실제 관측 비율(막대) vs 기대 비율(선)</div>
+          <svg id="benfordChart" viewBox="0 0 460 220" role="img" aria-label="벤포드 법칙 첫째자리 숫자 분포 그래프"></svg>
+          <div id="benfordBadges" class="badge-row"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>연도별 상세 지표</h2>
+        <span class="hint">기말잔액 기준 단순화 지표 · 스크리닝 참고용</span>
+      </div>
+      <div class="table-scroll">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th>연도</th>
+              <th>구분</th>
+              <th>매출채권회전율</th>
+              <th>재고자산회전율</th>
+              <th>발생액비율</th>
+              <th>영업이익률</th>
+              <th>순이익률</th>
+              <th>부채비율</th>
+              <th>위험 신호</th>
+            </tr>
+          </thead>
+          <tbody id="dataBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div>ⓘ 회전율은 기말잔액 기준 단순화 지표이며, 벤포드 법칙은 표본 300건 미만일 경우 신뢰도가 낮습니다.</div>
+    <div>본 도구는 학습·포트폴리오 목적의 1차 스크리닝 참고자료이며, 실제 감사 절차나 부정 판단의 근거로 사용할 수 없습니다.</div>
+  </footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const searchInput = $("searchInput");
+const suggestionsEl = $("suggestions");
+const chipRow = $("chipRow");
+const analyzeBtn = $("analyzeBtn");
+const startYearInput = $("startYear");
+const endYearInput = $("endYear");
+
+let corpList = [];
+let selected = null;
+let DATA = null; // {corp_name, corp_code, records, benford}
+let activeSuggestionIndex = -1;
+
+(function initYears(){
+  const now = new Date();
+  const endYear = now.getFullYear() - 1;
+  startYearInput.value = endYear - 4;
+  endYearInput.value = endYear;
+})();
+
+fetch("corp_list.json")
+  .then(r => r.json())
+  .then(list => {
+    corpList = list;
+    searchInput.disabled = false;
+    $("corpListStatus").textContent = `상장사 ${list.length.toLocaleString("ko-KR")}곳 검색 가능`;
+  })
+  .catch(() => {
+    $("corpListStatus").textContent = "상장사 목록을 불러오지 못했습니다. 새로고침해 주세요.";
+  });
+
+function renderSuggestions(items){
+  activeSuggestionIndex = -1;
+  if(items.length === 0){
+    suggestionsEl.innerHTML = `<div class="suggestion-empty">검색 결과가 없습니다.</div>`;
+    suggestionsEl.classList.add("open");
+    return;
+  }
+  suggestionsEl.innerHTML = items.map((c,i) => `
+    <div class="suggestion-item" data-idx="${i}" role="option">
+      <span>${c[0]}</span><span class="code">${c[2]}</span>
+    </div>`).join("");
+  suggestionsEl.classList.add("open");
+  suggestionsEl._items = items;
+}
+
+searchInput.addEventListener("input", () => {
+  const q = searchInput.value.trim();
+  if(q.length === 0){ suggestionsEl.classList.remove("open"); return; }
+  const qLower = q.toLowerCase();
+  const matches = corpList.filter(c => c[0].toLowerCase().includes(qLower)).slice(0, 8);
+  renderSuggestions(matches);
+});
+
+searchInput.addEventListener("focus", () => {
+  if(searchInput.value.trim() && suggestionsEl.innerHTML) suggestionsEl.classList.add("open");
+});
+
+document.addEventListener("click", (e) => {
+  if(!e.target.closest(".search-box")) suggestionsEl.classList.remove("open");
+});
+
+suggestionsEl.addEventListener("click", (e) => {
+  const item = e.target.closest(".suggestion-item");
+  if(!item) return;
+  const idx = Number(item.dataset.idx);
+  const picked = suggestionsEl._items[idx];
+  if(picked) selectCompany(picked);
+});
+
+searchInput.addEventListener("keydown", (e) => {
+  const items = suggestionsEl.querySelectorAll(".suggestion-item");
+  if(e.key === "ArrowDown"){
+    e.preventDefault();
+    activeSuggestionIndex = Math.min(activeSuggestionIndex+1, items.length-1);
+    items.forEach((el,i)=>el.classList.toggle("active", i===activeSuggestionIndex));
+  } else if(e.key === "ArrowUp"){
+    e.preventDefault();
+    activeSuggestionIndex = Math.max(activeSuggestionIndex-1, 0);
+    items.forEach((el,i)=>el.classList.toggle("active", i===activeSuggestionIndex));
+  } else if(e.key === "Enter"){
+    e.preventDefault();
+    if(activeSuggestionIndex >= 0 && suggestionsEl._items[activeSuggestionIndex]){
+      selectCompany(suggestionsEl._items[activeSuggestionIndex]);
+    }
+  } else if(e.key === "Escape"){
+    suggestionsEl.classList.remove("open");
+  }
+});
+
+function selectCompany(entry){
+  const [corp_name, corp_code, stock_code] = entry;
+  selected = {corp_name, corp_code, stock_code};
+  searchInput.value = corp_name;
+  suggestionsEl.classList.remove("open");
+  chipRow.innerHTML = `<span class="chip">${corp_name} <span class="code">${stock_code}</span></span>`;
+  analyzeBtn.disabled = false;
+}
+
+analyzeBtn.addEventListener("click", runAnalyze);
+
+async function runAnalyze(){
+  if(!selected) return;
+  const start = parseInt(startYearInput.value, 10);
+  const end = parseInt(endYearInput.value, 10);
+  if(!start || !end || end < start){
+    showError("조회 기간을 올바르게 입력해 주세요.");
+    return;
+  }
+
+  $("emptyState").style.display = "none";
+  $("errorBanner").style.display = "none";
+  $("resultsArea").classList.remove("visible");
+  $("loadingRow").style.display = "flex";
+  analyzeBtn.disabled = true;
+
+  try{
+    const r = await fetch(`/api/audit?corp_code=${encodeURIComponent(selected.corp_code)}&corp_name=${encodeURIComponent(selected.corp_name)}&start=${start}&end=${end}`);
+    const body = await r.json();
+    if(!r.ok) throw new Error(body.error || "조회 실패");
+    if(!body.records || body.records.length === 0){
+      showError("선택한 회사·기간에 해당하는 재무제표 데이터가 없습니다. 상장 이력이나 사업보고서 제출 여부를 확인해 주세요.");
+      return;
+    }
+    DATA = body;
+    renderResults();
+    $("resultsArea").classList.add("visible");
+  } catch(err){
+    showError(err.message || String(err));
+  } finally{
+    $("loadingRow").style.display = "none";
+    analyzeBtn.disabled = false;
+  }
+}
+
+function showError(msg){
+  const el = $("errorBanner");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+const jo = v => v===null||v===undefined ? null : v/1e12;
+const fmtJo = v => v===null||v===undefined ? "—" : (v>=0?"":"−") + Math.abs(v).toFixed(1) + "조";
+const fmtNum = (v, digits=2) => v===null||v===undefined ? "—" : (v>=0?"":"−") + Math.abs(v).toFixed(digits);
+const fmtPct = (v, digits=1) => v===null||v===undefined ? "—" : (v>=0?"":"−") + Math.abs(v).toFixed(digits) + "%";
+
+function renderResults(){
+  const records = DATA.records;
+  const latest = records[records.length-1];
+  const prev = records.length>1 ? records[records.length-2] : null;
+
+  $("kpiHeading").textContent = `${latest["연도"]} 사업연도 스냅샷 — ${DATA.corp_name}`;
+  $("kpiHint").textContent = prev ? `전년(${prev["연도"]}) 대비 증감 표기` : "";
+  $("trendHint").textContent = `${records[0]["연도"]} → ${latest["연도"]}`;
+
+  renderFlagBanner(records);
+  renderKpiCards(latest, prev);
+  renderTurnoverChart(records);
+  renderBenfordChart(DATA.benford);
+  renderTable(records);
+}
+
+function renderFlagBanner(records){
+  const allFlags = [];
+  records.forEach(r => (r.flags||[]).forEach(f => allFlags.push({...f, year:r["연도"]})));
+  const banner = $("flagBanner");
+  if(allFlags.length === 0){
+    banner.className = "flag-banner ok";
+    banner.innerHTML = `
+      <div class="flag-banner-head"><span class="flag-dot ok"></span>조회 기간 내 뚜렷한 이상 신호가 감지되지 않았습니다.</div>
+      <div class="flag-none">회전율 급변(±30% 이상), 발생액비율 과다(자산 대비 10% 이상) 기준으로 스크리닝한 결과입니다.</div>`;
+    return;
+  }
+  allFlags.sort((a,b) => b.year - a.year);
+  banner.className = "flag-banner warn";
+  banner.innerHTML = `
+    <div class="flag-banner-head"><span class="flag-dot warn"></span>${allFlags.length}건의 이상 신호가 감지되었습니다.</div>
+    <ul class="flag-list">
+      ${allFlags.map(f => `
+        <li class="flag-item ${f.severity}">
+          <span class="flag-badge ${f.severity}">${f.severity==='high'?'높음':'주의'}</span>
+          <span class="flag-text"><span class="yr">${f.year}</span><b>${f.type}</b> — ${f.detail}</span>
+        </li>`).join("")}
+    </ul>`;
+}
+
+function renderKpiCards(latest, prev){
+  const grid = $("kpiGrid");
+  const pctDelta = (cur, prevV) => {
+    if(cur==null || prevV==null || prevV===0) return "";
+    const d = cur - prevV;
+    return `<span class="delta ${d>=0?'up':'down'}">${d>=0?'▲':'▼'} ${Math.abs(d).toFixed(2)}</span>`;
+  };
+  const cards = [
+    {label:"매출채권회전율", value: fmtNum(latest["매출채권회전율"])+"회", delta: prev?pctDelta(latest["매출채권회전율"], prev["매출채권회전율"]):"", sub:"매출액 ÷ 기말 매출채권"},
+    {label:"재고자산회전율", value: fmtNum(latest["재고자산회전율"])+"회", delta: prev?pctDelta(latest["재고자산회전율"], prev["재고자산회전율"]):"", sub:"매출원가 ÷ 기말 재고자산"},
+    {label:"발생액비율", value: fmtPct(latest["발생액비율(%)"]), delta:"", sub:"(순이익 − 영업현금흐름) ÷ 자산총계"},
+    {label:"순이익률", value: fmtPct(latest["순이익률(%)"]), delta:"", sub:"당기순이익 ÷ 매출액"},
+  ];
+  grid.innerHTML = cards.map(c => `
+    <div class="kpi-card">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}${c.delta}</div>
+      <div class="kpi-sub">${c.sub}</div>
+    </div>`).join("");
+}
+
+function renderTurnoverChart(records){
+  const svg = $("turnoverChart");
+  const W=460,H=220,padL=34,padR=10,padT=14,padB=28;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const yrs = records.map(r=>r["연도"]);
+  const arVals = records.map(r=>r["매출채권회전율"]).filter(v=>v!=null);
+  const invVals = records.map(r=>r["재고자산회전율"]).filter(v=>v!=null);
+  const maxVal = (Math.max(...arVals, ...invVals, 0) || 1) * 1.15;
+  const xFor = i => yrs.length>1 ? padL + (i/(yrs.length-1))*plotW : padL+plotW/2;
+  const yFor = v => padT + plotH - (v/maxVal)*plotH;
+
+  let svgContent = "";
+  const steps=4;
+  for(let i=0;i<=steps;i++){
+    const v = maxVal/steps*i;
+    const y = padT+plotH-(v/maxVal)*plotH;
+    svgContent += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke-width="1"/>`;
+    svgContent += `<text class="axis-label" x="${padL-6}" y="${y+3}" text-anchor="end">${v.toFixed(1)}</text>`;
+  }
+
+  function linePath(key, color){
+    const pts = records.map((r,i)=> r[key]!=null ? [xFor(i), yFor(r[key])] : null).filter(p=>p);
+    if(pts.length===0) return "";
+    const path = pts.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+    let s = `<path d="${path}" fill="none" stroke="${color}" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>`;
+    pts.forEach(p=>{ s += `<circle cx="${p[0]}" cy="${p[1]}" r="3.2" fill="${color}"/>`; });
+    return s;
+  }
+  svgContent += linePath("매출채권회전율", "var(--series-1)");
+  svgContent += linePath("재고자산회전율", "var(--series-2)");
+
+  yrs.forEach((yr,i)=>{
+    svgContent += `<text class="axis-label" x="${xFor(i)}" y="${H-8}" text-anchor="middle">${yr}</text>`;
+  });
+  svgContent += `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--border)" stroke-width="1.5"/>`;
+  svg.innerHTML = svgContent;
+  $("turnoverLegend").innerHTML = `
+    <span><i style="background:var(--series-1)"></i>매출채권회전율</span>
+    <span><i style="background:var(--series-2)"></i>재고자산회전율</span>`;
+}
+
+function renderBenfordChart(benford){
+  const svg = $("benfordChart");
+  const badges = $("benfordBadges");
+  if(!benford || benford.sample_size === 0){
+    svg.innerHTML = "";
+    badges.innerHTML = `<span class="stat-badge">분석할 데이터가 부족합니다.</span>`;
+    return;
+  }
+  const W=460,H=220,padL=34,padR=10,padT=14,padB=28;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const maxPct = Math.max(...benford.digits.map(d=>Math.max(d.observed_pct, d.expected_pct))) * 1.15 || 40;
+  const groupW = plotW/9;
+  const barW = Math.min(26, groupW*0.55);
+  const xFor = i => padL + groupW*i + groupW/2;
+  const yFor = v => padT + plotH - (v/maxPct)*plotH;
+
+  let svgContent = "";
+  const steps=4;
+  for(let i=0;i<=steps;i++){
+    const v = maxPct/steps*i;
+    const y = yFor(v);
+    svgContent += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke-width="1"/>`;
+    svgContent += `<text class="axis-label" x="${padL-6}" y="${y+3}" text-anchor="end">${v.toFixed(0)}%</text>`;
+  }
+
+  benford.digits.forEach((d,i)=>{
+    const bh = (d.observed_pct/maxPct)*plotH;
+    const x = xFor(i) - barW/2;
+    const y = padT+plotH-bh;
+    svgContent += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" fill="var(--series-1)" rx="3"/>`;
+    svgContent += `<text class="axis-label" x="${xFor(i)}" y="${H-8}" text-anchor="middle">${d.digit}</text>`;
+  });
+
+  const expPts = benford.digits.map((d,i)=>[xFor(i), yFor(d.expected_pct)]);
+  const expPath = expPts.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+  svgContent += `<path d="${expPath}" fill="none" stroke="var(--neg)" stroke-width="2" stroke-dasharray="4,3"/>`;
+  expPts.forEach(p=>{ svgContent += `<circle cx="${p[0]}" cy="${p[1]}" r="2.6" fill="var(--neg)"/>`; });
+
+  svgContent += `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--border)" stroke-width="1.5"/>`;
+  svg.innerHTML = svgContent;
+
+  const conformityClass = benford.mad < 0.006 ? "conformity-close"
+    : benford.mad < 0.012 ? "conformity-accept"
+    : benford.mad < 0.015 ? "conformity-marginal" : "conformity-non";
+
+  badges.innerHTML = `
+    <span class="stat-badge strong">표본 ${benford.sample_size.toLocaleString("ko-KR")}건</span>
+    <span class="stat-badge strong">MAD ${benford.mad.toFixed(4)}</span>
+    <span class="stat-badge ${conformityClass}">${benford.conformity}</span>
+    ${benford.low_sample_warning ? `<span class="stat-badge">⚠ 표본 300건 미만 — 신뢰도 낮음</span>` : ""}
+    <span class="stat-badge">— 빨간 점선: 기대비율(log₁₀(1+1/d))</span>`;
+}
+
+function renderTable(records){
+  const tbody = $("dataBody");
+  tbody.innerHTML = records.map(r => {
+    const flagsHtml = (r.flags||[]).map(f => `<span class="flag-mini ${f.severity}">${f.type}</span>`).join("");
+    return `<tr>
+      <td>${r["연도"]}</td>
+      <td><span class="tag">${r["재무제표구분"]}</span></td>
+      <td>${r["매출채권회전율"]!=null ? r["매출채권회전율"].toFixed(2)+"회" : '<span class="cell-empty">—</span>'}</td>
+      <td>${r["재고자산회전율"]!=null ? r["재고자산회전율"].toFixed(2)+"회" : '<span class="cell-empty">—</span>'}</td>
+      <td class="${r["발생액비율(%)"]>=10?'num-neg':''}">${fmtPct(r["발생액비율(%)"])}</td>
+      <td>${fmtPct(r["영업이익률(%)"])}</td>
+      <td>${fmtPct(r["순이익률(%)"])}</td>
+      <td>${fmtPct(r["부채비율(%)"])}</td>
+      <td>${flagsHtml || '<span class="cell-empty">—</span>'}</td>
+    </tr>`;
+  }).join("");
+}
+</script>
+</body>
+</html>

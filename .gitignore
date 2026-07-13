@@ -1,0 +1,9 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+
+# vercel
+.vercel
