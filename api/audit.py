@@ -41,7 +41,10 @@ ACCOUNT_ID_ALIASES = {
         "dart_ShortTermTradeReceivable", "dart_ShortTermTradeReceivables",
     ],
     "재고자산": ["ifrs-full_Inventories"],
-    "기타채권": ["dart_CurrentNontradeReceivables", "dart_OtherCurrentReceivables", "dart_OtherReceivables"],
+    "기타채권": [
+        "dart_CurrentNontradeReceivables", "dart_OtherCurrentReceivables", "dart_OtherReceivables",
+        "ifrs-full_OtherCurrentReceivables", "dart_ShortTermOtherReceivablesNet",
+    ],
     "매입채무": [
         "ifrs-full_TradeAndOtherCurrentPayables", "ifrs-full_TradeAndOtherCurrentPayablesToTradeSuppliers",
         "dart_ShortTermTradePayables", "dart_ShortTermTradePayable",
@@ -75,7 +78,7 @@ TARGET_ACCOUNTS = {
     ],
     "매출채권": ["매출채권", "매출채권및기타채권", "매출채권및기타유동채권"],
     "재고자산": ["재고자산"],
-    "기타채권": ["기타채권", "기타유동채권", "기타비유동채권"],
+    "기타채권": ["기타채권", "기타유동채권", "기타비유동채권", "미수금"],
     "매입채무": ["매입채무", "매입채무및기타채무", "매입채무및기타유동채무"],
     "유동자산": ["유동자산"],
     "유동부채": ["유동부채"],
