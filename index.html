@@ -253,6 +253,62 @@
     margin-top:36px; padding-top:16px; border-top:1px solid var(--border);
     font-size:11.5px; color:var(--ink-muted); display:flex; flex-direction:column; gap:4px;
   }
+
+  /* top risks */
+  .risk-grid{display:flex; flex-direction:column; gap:12px;}
+  .risk-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:20px;
+    padding:18px 22px; box-shadow:var(--shadow); display:flex; gap:16px; align-items:flex-start;
+  }
+  .risk-rank{
+    flex:none; width:32px; height:32px; border-radius:50%; background:var(--accent-soft); color:var(--accent);
+    font-weight:800; font-size:14px; display:flex; align-items:center; justify-content:center;
+  }
+  .risk-body{flex:1; min-width:0;}
+  .risk-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .risk-account{font-weight:800; font-size:15px;}
+  .risk-comment{font-size:13.5px; color:var(--ink); margin-top:6px; line-height:1.55;}
+  .risk-procedures{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;}
+  .procedure-tag{
+    font-size:11.5px; font-weight:700; padding:5px 11px; border-radius:999px;
+    background:var(--surface-alt); color:var(--ink-muted); border:1px solid var(--border);
+  }
+  .top-risks-empty{color:var(--ink-muted); font-size:13.5px;}
+
+  /* account growth table */
+  .growth-table{width:100%; border-collapse:collapse; font-size:13px;}
+  .growth-table th{
+    text-align:right; font-weight:700; font-size:11.5px; color:var(--ink-muted);
+    padding:10px 14px; border-bottom:1px solid var(--border);
+  }
+  .growth-table th:first-child{text-align:left;}
+  .growth-table td{padding:11px 14px; text-align:right; border-bottom:1px solid var(--border); font-weight:600;}
+  .growth-table td:first-child{text-align:left; font-weight:700;}
+  .growth-table tr:last-child td{border-bottom:none;}
+  .growth-table tr.risky td{background:var(--neg-soft);}
+
+  /* disclosure timeline */
+  .cat-badge{ font-size:10.5px; font-weight:800; padding:3px 9px; border-radius:999px; flex:none; }
+  .cat-badge.cat-correction{background:var(--neg-soft); color:var(--neg);}
+  .cat-badge.cat-issuance{background:var(--warn-soft); color:var(--warn);}
+  .cat-badge.cat-owner{background:var(--accent-soft); color:var(--accent);}
+  .cat-badge.cat-fraud{background:var(--neg-soft); color:var(--neg);}
+  .cat-badge.cat-other{background:var(--surface-alt); color:var(--ink-muted); border:1px solid var(--border);}
+
+  /* pdf export */
+  .btn-secondary{
+    padding:9px 16px; font-size:13px; font-weight:700; border-radius:12px;
+    border:1px solid var(--border); background:var(--surface); color:var(--ink); cursor:pointer;
+  }
+  .btn-secondary:hover{border-color:var(--accent); color:var(--accent);}
+  .result-actions{display:flex; justify-content:flex-end; margin-bottom:14px;}
+
+  @media print{
+    .search-card, #newsSection, .result-actions, header .nav-link, .search-hint{ display:none !important; }
+    body{background:#fff;}
+    .kpi-card, .chart-card, .risk-card, .search-card, .table-scroll{ box-shadow:none; border:1px solid #ccc; }
+    section{ break-inside:avoid; }
+  }
 </style>
 </head>
 <body>
@@ -305,7 +361,19 @@
   <div id="emptyState" class="empty-state">회사를 검색해 선택한 뒤 <b>분석하기</b>를 눌러주세요.</div>
 
   <div id="resultsArea">
+    <div class="result-actions">
+      <button class="btn-secondary" id="pdfBtn">PDF 워킹페이퍼 생성</button>
+    </div>
+
     <div id="flagBanner" class="flag-banner"></div>
+
+    <section id="topRisksSection">
+      <div class="section-head">
+        <h2>이번 감사 TOP5 위험계정</h2>
+        <span class="hint">규칙기반 스크리닝 · 감사절차 추천 (생성형 AI 미사용)</span>
+      </div>
+      <div class="risk-grid" id="riskGrid"></div>
+    </section>
 
     <section>
       <div class="section-head">
@@ -338,8 +406,23 @@
 
     <section>
       <div class="section-head">
-        <h2>정정공시 이력</h2>
-        <span class="hint">사업·반기·분기보고서 중 [기재정정] 이력 · 재무제표 신뢰성 참고 지표</span>
+        <h2 id="growthHeading">전년 대비 계정 증감률</h2>
+        <span class="hint">매출증가율 대비 크게 늘어난 계정을 자동으로 표시합니다</span>
+      </div>
+      <div class="table-scroll">
+        <table class="growth-table" id="growthTable">
+          <thead>
+            <tr><th>계정</th><th>당기</th><th>전기</th><th>증감률</th></tr>
+          </thead>
+          <tbody id="growthBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>공시 타임라인</h2>
+        <span class="hint">정정공시 · 유상증자 · 전환사채 · 최대주주변경 · 횡령/배임 · 상장폐지 관련 공시</span>
       </div>
       <div id="corrList" class="corr-list"></div>
     </section>
@@ -358,6 +441,9 @@
               <th>매출채권회전율</th>
               <th>재고자산회전율</th>
               <th>발생액비율</th>
+              <th>유동비율</th>
+              <th>ROA</th>
+              <th>ROE</th>
               <th>영업이익률</th>
               <th>순이익률</th>
               <th>부채비율</th>
@@ -373,6 +459,7 @@
 
   <footer>
     <div>ⓘ 회전율은 기말잔액 기준 단순화 지표이며, Z-Score는 시가총액 대신 자본총계(장부가)를 쓰는 비상장·이머징마켓용 변형식(Altman·Hartzell·Peck 1995)으로 실제 부도예측력을 보장하지 않습니다.</div>
+    <div>ⓘ "TOP5 위험계정"의 코멘트와 추천 감사절차는 사전에 정의한 규칙(rule-based)으로 생성되며, 생성형 AI가 실시간으로 작성한 것이 아닙니다.</div>
     <div>본 도구는 학습·포트폴리오 목적의 1차 스크리닝 참고자료이며, 실제 감사 절차나 부정 판단, 부도예측의 근거로 사용할 수 없습니다.</div>
   </footer>
 </div>
@@ -388,7 +475,7 @@ const endYearInput = $("endYear");
 
 let corpList = [];
 let selected = null;
-let DATA = null; // {corp_name, corp_code, records, corrections}
+let DATA = null; // {corp_name, corp_code, records, timeline, top_risks}
 let activeSuggestionIndex = -1;
 
 (function initYears(){
@@ -562,12 +649,15 @@ function renderResults(){
   $("kpiHeading").textContent = `${latest["연도"]} 사업연도 스냅샷 — ${DATA.corp_name}`;
   $("kpiHint").textContent = prev ? `전년(${prev["연도"]}) 대비 증감 표기` : "";
   $("trendHint").textContent = `${records[0]["연도"]} → ${latest["연도"]}`;
+  $("growthHeading").textContent = `전년 대비 계정 증감률 (${latest["연도"]})`;
 
   renderFlagBanner(records);
+  renderTopRisks(DATA.top_risks);
   renderKpiCards(latest, prev);
   renderTurnoverChart(records);
   renderZScoreChart(records);
-  renderCorrections(DATA.corrections);
+  renderAccountGrowth(latest);
+  renderTimeline(DATA.timeline);
   renderTable(records);
 }
 
@@ -579,7 +669,7 @@ function renderFlagBanner(records){
     banner.className = "flag-banner ok";
     banner.innerHTML = `
       <div class="flag-banner-head"><span class="flag-dot ok"></span>조회 기간 내 뚜렷한 이상 신호가 감지되지 않았습니다.</div>
-      <div class="flag-none">회전율 급변(±30% 이상), 발생액비율 과다(자산 대비 10% 이상) 기준으로 스크리닝한 결과입니다.</div>`;
+      <div class="flag-none">매출증가율 대비 계정 급증, 발생액비율 과다, 부실위험(Z-Score) 기준으로 스크리닝한 결과입니다.</div>`;
     return;
   }
   allFlags.sort((a,b) => b.year - a.year);
@@ -709,21 +799,69 @@ function renderZScoreChart(records){
     <span class="stat-badge">● 안전 &nbsp;● 회색지대 &nbsp;● 위험</span>`;
 }
 
-function renderCorrections(corrections){
+const TIMELINE_CATEGORY_CLASS = {
+  "정정공시": "cat-correction",
+  "유상증자": "cat-issuance",
+  "전환사채/신주인수권부사채": "cat-issuance",
+  "최대주주 변경": "cat-owner",
+  "횡령/배임": "cat-fraud",
+  "상장폐지 관련": "cat-fraud",
+};
+
+function renderTimeline(timeline){
   const list = $("corrList");
-  if(!corrections || corrections.length === 0){
-    list.innerHTML = `<div class="corr-status">조회 기간 내 정정공시 이력이 없습니다.</div>`;
+  if(!timeline || timeline.length === 0){
+    list.innerHTML = `<div class="corr-status">조회 기간 내 관련 공시 이력이 없습니다.</div>`;
     return;
   }
-  list.innerHTML = corrections.map(c => {
+  list.innerHTML = timeline.map(c => {
     const d = c.rcept_dt;
     const dateStr = d && d.length === 8 ? `${d.slice(0,4)}.${d.slice(4,6)}.${d.slice(6,8)}` : d;
+    const catClass = TIMELINE_CATEGORY_CLASS[c.category] || "cat-other";
     return `
       <a class="corr-item" href="${c.url}" target="_blank" rel="noopener noreferrer">
-        <span class="corr-title">${c.report_nm}</span>
+        <span class="corr-title"><span class="cat-badge ${catClass}">${c.category}</span> ${c.report_nm}</span>
         <span class="corr-date">${dateStr}</span>
       </a>`;
   }).join("");
+}
+
+function renderTopRisks(topRisks){
+  const grid = $("riskGrid");
+  if(!topRisks || topRisks.length === 0){
+    grid.innerHTML = `<div class="top-risks-empty">최신 연도 기준으로 규칙에 해당하는 위험 신호가 없습니다.</div>`;
+    return;
+  }
+  grid.innerHTML = topRisks.map(r => `
+    <div class="risk-card">
+      <div class="risk-rank">${r.rank}</div>
+      <div class="risk-body">
+        <div class="risk-head">
+          <span class="risk-account">${r.account}</span>
+          <span class="flag-badge ${r.severity}">${r.severity==='high'?'높음':'주의'}</span>
+        </div>
+        <div class="risk-comment">${r.comment}</div>
+        <div class="risk-procedures">
+          ${r.procedures.map(p => `<span class="procedure-tag">${p}</span>`).join("")}
+        </div>
+      </div>
+    </div>`).join("");
+}
+
+function renderAccountGrowth(latest){
+  const tbody = $("growthBody");
+  const rows = latest.account_growth || [];
+  if(rows.length === 0){
+    tbody.innerHTML = `<tr><td colspan="4" class="cell-empty">전기 데이터가 없어 증감률을 계산할 수 없습니다 (조회 기간 첫 연도).</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr class="${r["위험"] ? "risky" : ""}">
+      <td>${r["계정"]}${r["위험"] ? " ⚠" : ""}</td>
+      <td>${fmtJo(jo(r["당기"]))}</td>
+      <td>${fmtJo(jo(r["전기"]))}</td>
+      <td>${fmtPct(r["증감률(%)"])}</td>
+    </tr>`).join("");
 }
 
 function renderTable(records){
@@ -737,6 +875,9 @@ function renderTable(records){
       <td>${r["매출채권회전율"]!=null ? r["매출채권회전율"].toFixed(2)+"회" : '<span class="cell-empty">—</span>'}</td>
       <td>${r["재고자산회전율"]!=null ? r["재고자산회전율"].toFixed(2)+"회" : '<span class="cell-empty">—</span>'}</td>
       <td class="${r["발생액비율(%)"]>=10?'num-neg':''}">${fmtPct(r["발생액비율(%)"])}</td>
+      <td>${fmtPct(r["유동비율(%)"])}</td>
+      <td>${fmtPct(r["ROA(%)"])}</td>
+      <td>${fmtPct(r["ROE(%)"])}</td>
       <td>${fmtPct(r["영업이익률(%)"])}</td>
       <td>${fmtPct(r["순이익률(%)"])}</td>
       <td>${fmtPct(r["부채비율(%)"])}</td>
@@ -745,6 +886,8 @@ function renderTable(records){
     </tr>`;
   }).join("");
 }
+
+$("pdfBtn").addEventListener("click", () => window.print());
 </script>
 </body>
 </html>

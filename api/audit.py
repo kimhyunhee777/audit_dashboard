@@ -4,12 +4,16 @@ Vercel Python 서버리스 함수: GET /api/audit
 쿼리: corp_code, corp_name, start(연도), end(연도)
 
 DART Open API로 지정 회사의 start~end 연도 재무제표를 조회하여
-1) 재무비율(회전율, 발생액비율 등) 이상징후 스크리닝에 필요한 지표를 계산하고
-2) Altman Z''-Score(비상장·이머징마켓용 부실위험 예측모형)를 계산하며
-3) 같은 기간 정정공시(사업·반기·분기보고서 정정) 이력을 조회한다.
+1) 재무비율(회전율·유동성·수익성·발생액비율 등) 스크리닝 지표를 계산하고
+2) 계정과목별 전기 대비 증감률을 매출증가율과 비교해 이상 계정을 탐지하며
+3) Altman Z''-Score(비상장·이머징마켓용 부실위험 예측모형)를 계산하고
+4) 정정공시·유상증자·전환사채·최대주주변경·횡령배임 등 공시 타임라인을 조회하며
+5) 위 신호들을 규칙기반(rule-based)으로 종합해 "이번 감사 TOP5 위험계정"과
+   계정별 감사절차 추천을 생성한다.
 
-주의: 본 도구는 학습·포트폴리오 목적의 1차 스크리닝 참고자료이며,
-실제 감사 절차나 부정 판단, 부도예측의 근거로 사용할 수 없다.
+주의: 본 도구는 학습·포트폴리오 목적의 1차 스크리닝 참고자료다. 코멘트·감사절차 추천은
+모두 사전에 정의한 규칙(rule)에 따라 생성되며(생성형 AI 아님), 실제 감사 절차나
+부정 판단, 부도예측의 근거로 사용할 수 없다.
 """
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -40,6 +44,8 @@ TARGET_ACCOUNTS = {
     ],
     "매출채권": ["매출채권", "매출채권및기타채권", "매출채권및기타유동채권"],
     "재고자산": ["재고자산"],
+    "기타채권": ["기타채권", "기타유동채권", "기타비유동채권"],
+    "매입채무": ["매입채무", "매입채무및기타채무", "매입채무및기타유동채무"],
     "유동자산": ["유동자산"],
     "유동부채": ["유동부채"],
     "이익잉여금": ["이익잉여금", "이익잉여금(결손금)", "미처리결손금"],
@@ -62,6 +68,20 @@ def _normalize(name):
 TARGET_ACCOUNTS_NORMALIZED = {
     metric: {_normalize(alias) for alias in aliases}
     for metric, aliases in TARGET_ACCOUNTS.items()
+}
+
+# 계정 증감률 스크리닝 대상 (매출 대비 이상 급증 여부를 본다)
+GROWTH_ACCOUNTS = ["매출채권", "재고자산", "기타채권", "매입채무"]
+
+# 규칙기반 감사절차 추천 · 코멘트 템플릿 (카테고리별)
+RISK_PROCEDURES = {
+    "매출채권": ["매출채권 조회(Confirmation) 실시", "대손충당금 적정성 검토", "수익인식 시점(Cut-off) 테스트", "주요 채무자 신용상태 확인"],
+    "재고자산": ["재고실사 입회", "평가충당금(저가법) 검토", "재고 Cut-off 테스트", "재고 진부화 여부 확인"],
+    "기타채권": ["특수관계자 거래 여부 확인", "채권 회수가능성 검토", "관련 계약·증빙서류 검토"],
+    "매입채무": ["매입채무 조회(Confirmation) 실시", "미지급 비용 완전성 검토", "Cut-off 테스트"],
+    "발생액비율": ["이익조정 가능성 검토", "발생주의 회계처리 적정성 확인", "현금흐름표-손익계산서 정합성 검토"],
+    "부실위험": ["계속기업 가정(Going Concern) 평가", "자금조달계획 및 차입금 만기 스케줄 검토", "경영진 대응계획 확인"],
+    "정정공시": ["과거 정정 사유 확인", "동일 오류 재발 방지 통제 검토", "관련 계정 표본 확대"],
 }
 
 
@@ -102,6 +122,12 @@ def extract_metrics(rows):
     return result
 
 
+def pct_change(cur, prev):
+    if cur is None or prev in (None, 0):
+        return None
+    return (cur - prev) / abs(prev) * 100
+
+
 # Altman Z''-Score (Emerging Markets Score, Altman·Hartzell·Peck 1995) 존 판정 기준
 def zscore_zone(z):
     if z > 2.6:
@@ -138,6 +164,41 @@ def compute_zscore(metrics):
     return {"score": round(z, 2), "zone": zscore_zone(z)}
 
 
+def build_account_growth(metrics, prior_metrics):
+    """매출액 및 주요 계정의 전기 대비 증감률표. 매출 증가율보다 훨씬 크게 늘어난 계정에
+    위험 플래그를 매긴다 (예: 매출 +3%인데 매출채권 +48%)."""
+    if not prior_metrics:
+        return []
+    revenue = metrics.get("매출액")
+    prior_revenue = prior_metrics.get("매출액")
+    revenue_growth = pct_change(revenue, prior_revenue)
+
+    rows = [{
+        "계정": "매출액",
+        "당기": revenue,
+        "전기": prior_revenue,
+        "증감률(%)": round(revenue_growth, 1) if revenue_growth is not None else None,
+        "위험": False,
+    }]
+
+    for acct in GROWTH_ACCOUNTS:
+        cur = metrics.get(acct)
+        prev = prior_metrics.get(acct)
+        growth = pct_change(cur, prev)
+        risky = False
+        if growth is not None and revenue_growth is not None:
+            diff = growth - revenue_growth
+            risky = growth >= 15 and diff >= 20
+        rows.append({
+            "계정": acct,
+            "당기": cur,
+            "전기": prev,
+            "증감률(%)": round(growth, 1) if growth is not None else None,
+            "위험": risky,
+        })
+    return rows
+
+
 def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
     revenue = metrics.get("매출액")
     cogs = metrics.get("매출원가")
@@ -148,6 +209,8 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
     liabilities = metrics.get("부채총계")
     equity = metrics.get("자본총계")
     cfo = metrics.get("영업활동현금흐름")
+    current_assets = metrics.get("유동자산")
+    current_liabilities = metrics.get("유동부채")
 
     record = {
         "회사명": corp_name,
@@ -167,6 +230,19 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
     record["부채비율(%)"] = (
         round(liabilities / equity * 100, 2) if equity and liabilities is not None else None
     )
+    record["유동비율(%)"] = (
+        round(current_assets / current_liabilities * 100, 2)
+        if current_assets is not None and current_liabilities else None
+    )
+    record["ROA(%)"] = (
+        round(net_income / assets * 100, 2) if assets and net_income is not None else None
+    )
+    record["ROE(%)"] = (
+        round(net_income / equity * 100, 2) if equity and net_income is not None else None
+    )
+    record["현금흐름대비순이익비율(%)"] = (
+        round(cfo / net_income * 100, 2) if net_income and cfo is not None else None
+    )
 
     # 회전율: 기말잔액 기준 단순화(평잔 미사용) - 스크리닝용 근사치
     record["매출채권회전율"] = (
@@ -183,36 +259,25 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
     )
 
     record["zscore"] = compute_zscore(metrics)
+    record["account_growth"] = build_account_growth(metrics, prior_metrics)
 
-    # 전기 대비 회전율 급변 플래그
     flags = []
-    if prior_metrics:
-        def pct_change(cur, prev):
-            if cur is None or prev in (None, 0):
-                return None
-            return (cur - prev) / abs(prev) * 100
-
-        prior_rec_ar_turn = prior_metrics.get("매출채권회전율")
-        prior_rec_inv_turn = prior_metrics.get("재고자산회전율")
-        ar_chg = pct_change(record["매출채권회전율"], prior_rec_ar_turn)
-        inv_chg = pct_change(record["재고자산회전율"], prior_rec_inv_turn)
-
-        if ar_chg is not None and abs(ar_chg) >= 30:
-            flags.append({
-                "type": "매출채권회전율 급변",
-                "detail": f"전기 대비 {ar_chg:+.1f}% 변동",
-                "severity": "high" if abs(ar_chg) >= 50 else "medium",
-            })
-        if inv_chg is not None and abs(inv_chg) >= 30:
-            flags.append({
-                "type": "재고자산회전율 급변",
-                "detail": f"전기 대비 {inv_chg:+.1f}% 변동",
-                "severity": "high" if abs(inv_chg) >= 50 else "medium",
-            })
+    for row in record["account_growth"]:
+        if not row["위험"]:
+            continue
+        acct = row["계정"]
+        rev_g = record["account_growth"][0]["증감률(%)"]
+        flags.append({
+            "type": f"{acct} 급증",
+            "category": acct,
+            "detail": f"매출 {rev_g:+.1f}% 대비 {acct} {row['증감률(%)']:+.1f}% 증가",
+            "severity": "high" if (row["증감률(%)"] - rev_g) >= 40 else "medium",
+        })
 
     if record["발생액비율(%)"] is not None and record["발생액비율(%)"] >= 10:
         flags.append({
             "type": "발생액비율 과다",
+            "category": "발생액비율",
             "detail": f"자산총계 대비 {record['발생액비율(%)']:.1f}% (순이익이 영업현금흐름을 상회)",
             "severity": "high" if record["발생액비율(%)"] >= 15 else "medium",
         })
@@ -220,6 +285,7 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
     if record["zscore"] is not None and record["zscore"]["zone"] == "위험":
         flags.append({
             "type": "부실위험(Z-Score)",
+            "category": "부실위험",
             "detail": f"Altman Z''-Score {record['zscore']['score']} (위험 구간, 1.1 미만)",
             "severity": "high",
         })
@@ -228,36 +294,92 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
     return record
 
 
-def fetch_correction_history(api_key, corp_code, start_year, end_year):
-    """정기공시(사업·반기·분기보고서) 중 '정정' 보고서 이력을 조회한다."""
-    params = {
-        "crtfc_key": api_key,
-        "corp_code": corp_code,
-        "bgn_de": f"{start_year}0101",
-        "end_de": f"{end_year}1231",
-        "pblntf_ty": "A",  # 정기공시
-        "page_count": "100",
-    }
-    resp = requests.get(f"{BASE_URL}/list.json", params=params, timeout=20)
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("status") not in ("000", "013"):  # 013 = 조회된 데이터 없음
-        return []
+DISCLOSURE_QUERIES = [
+    ("A", {"정정공시": ["정정"]}),
+    ("B", {"유상증자": ["유상증자"], "전환사채/신주인수권부사채": ["전환사채", "신주인수권부사채"]}),
+    ("D", {"최대주주 변경": ["최대주주"]}),
+    ("F", {"횡령/배임": ["횡령", "배임"], "상장폐지 관련": ["상장폐지"]}),
+]
 
+
+def fetch_disclosure_timeline(api_key, corp_code, start_year, end_year):
+    """정정공시·유상증자·전환사채·최대주주변경·횡령배임·상장폐지 관련 공시 이력을 조회한다."""
     items = []
-    for row in data.get("list", []):
-        report_nm = row.get("report_nm") or ""
-        if "정정" not in report_nm:
+    for pblntf_ty, category_map in DISCLOSURE_QUERIES:
+        params = {
+            "crtfc_key": api_key,
+            "corp_code": corp_code,
+            "bgn_de": f"{start_year}0101",
+            "end_de": f"{end_year}1231",
+            "pblntf_ty": pblntf_ty,
+            "sort": "date",
+            "sort_mth": "desc",
+            "page_count": "100",
+        }
+        resp = requests.get(f"{BASE_URL}/list.json", params=params, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("status") not in ("000", "013"):  # 013 = 조회된 데이터 없음
             continue
-        rcept_no = row.get("rcept_no")
-        items.append({
-            "report_nm": report_nm,
-            "rcept_dt": row.get("rcept_dt"),
-            "flr_nm": row.get("flr_nm"),
-            "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}",
-        })
+        for row in data.get("list", []):
+            report_nm = row.get("report_nm") or ""
+            for category, keywords in category_map.items():
+                if any(kw in report_nm for kw in keywords):
+                    items.append({
+                        "category": category,
+                        "report_nm": report_nm,
+                        "rcept_dt": row.get("rcept_dt"),
+                        "flr_nm": row.get("flr_nm"),
+                        "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={row.get('rcept_no')}",
+                    })
+                    break
     items.sort(key=lambda x: x.get("rcept_dt") or "", reverse=True)
     return items
+
+
+def build_top_risks(latest_record, timeline):
+    """최신 연도 위험 신호 + 정정공시 이력을 종합해 코멘트·추천 감사절차가 붙은
+    TOP5 위험계정 리스트를 만든다 (규칙기반, 생성형 AI 미사용)."""
+    items = []
+    severity_rank = {"high": 2, "medium": 1}
+
+    for f in latest_record.get("flags", []):
+        category = f["category"]
+        if category in RISK_PROCEDURES:
+            comment = {
+                "발생액비율": f"당기순이익이 영업활동현금흐름을 상회합니다({f['detail']}). 이익의 질(Earnings Quality) 저하 가능성을 검토할 필요가 있습니다.",
+                "부실위험": f"{f['detail']}. 계속기업 가정에 대한 감사인의 추가 검토가 필요합니다.",
+            }.get(category, f"{f['detail']}. 관련 계정에 대한 추가 감사절차가 필요합니다.")
+        else:
+            comment = f"{f['detail']}. 관련 계정에 대한 추가 감사절차가 필요합니다."
+
+        items.append({
+            "account": category,
+            "type": f["type"],
+            "comment": comment,
+            "evidence": [f["detail"]],
+            "procedures": RISK_PROCEDURES.get(category, ["관련 계정 상세 분석 및 표본 확대"]),
+            "severity": f["severity"],
+            "_rank": severity_rank.get(f["severity"], 0),
+        })
+
+    correction_count = sum(1 for t in timeline if t["category"] == "정정공시")
+    if correction_count > 0:
+        items.append({
+            "account": "정정공시",
+            "type": "정정공시 이력",
+            "comment": f"조회 기간 내 {correction_count}건의 정기보고서 정정 이력이 있습니다. 과거 정정 사유와 재발 방지 통제를 확인할 필요가 있습니다.",
+            "evidence": [f"정정 {correction_count}건"],
+            "procedures": RISK_PROCEDURES["정정공시"],
+            "severity": "medium",
+            "_rank": severity_rank["medium"],
+        })
+
+    items.sort(key=lambda x: x["_rank"], reverse=True)
+    for i, item in enumerate(items[:5], start=1):
+        item["rank"] = i
+        del item["_rank"]
+    return items[:5]
 
 
 def handle_request(query, api_key):
@@ -293,18 +415,21 @@ def handle_request(query, api_key):
         return 502, {"error": f"DART 조회 중 오류가 발생했습니다: {e}"}
 
     if not records:
-        return 200, {"corp_code": corp_code, "corp_name": corp_name, "records": [], "corrections": []}
+        return 200, {"corp_code": corp_code, "corp_name": corp_name, "records": [], "timeline": [], "top_risks": []}
 
     try:
-        corrections = fetch_correction_history(api_key, corp_code, start_year, end_year)
+        timeline = fetch_disclosure_timeline(api_key, corp_code, start_year, end_year)
     except requests.RequestException:
-        corrections = []
+        timeline = []
+
+    top_risks = build_top_risks(records[-1], timeline)
 
     return 200, {
         "corp_code": corp_code,
         "corp_name": corp_name,
         "records": records,
-        "corrections": corrections,
+        "timeline": timeline,
+        "top_risks": top_risks,
     }
 
 
