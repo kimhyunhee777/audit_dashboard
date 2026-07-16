@@ -5,15 +5,15 @@ Vercel Python 서버리스 함수: GET /api/audit
 
 DART Open API로 지정 회사의 start~end 연도 재무제표를 조회하여
 1) 재무비율(회전율, 발생액비율 등) 이상징후 스크리닝에 필요한 지표를 계산하고
-2) 조회된 전체 계정과목 금액을 모아 벤포드 법칙(Benford's Law) 첫째자리 분석을 수행한다.
+2) Altman Z''-Score(비상장·이머징마켓용 부실위험 예측모형)를 계산하며
+3) 같은 기간 정정공시(사업·반기·분기보고서 정정) 이력을 조회한다.
 
 주의: 본 도구는 학습·포트폴리오 목적의 1차 스크리닝 참고자료이며,
-실제 감사 절차나 부정 판단의 근거로 사용할 수 없다.
+실제 감사 절차나 부정 판단, 부도예측의 근거로 사용할 수 없다.
 """
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import json
-import math
 import os
 import requests
 
@@ -40,6 +40,9 @@ TARGET_ACCOUNTS = {
     ],
     "매출채권": ["매출채권", "매출채권및기타채권", "매출채권및기타유동채권"],
     "재고자산": ["재고자산"],
+    "유동자산": ["유동자산"],
+    "유동부채": ["유동부채"],
+    "이익잉여금": ["이익잉여금", "이익잉여금(결손금)", "미처리결손금"],
     "자산총계": ["자산총계", "자산 합계", "자산합계"],
     "부채총계": ["부채총계", "부채 합계", "부채합계"],
     "자본총계": ["자본총계", "자본 합계", "자본합계"],
@@ -48,6 +51,7 @@ TARGET_ACCOUNTS = {
         "영업활동으로인한순현금흐름", "영업활동으로인한현금흐름(유출)",
     ],
 }
+
 
 def _normalize(name):
     """계정과목명 비교용 정규화: 공백만 제거(같은 계정을 회사마다 "OO 합계"/"OO합계"처럼
@@ -59,19 +63,6 @@ TARGET_ACCOUNTS_NORMALIZED = {
     metric: {_normalize(alias) for alias in aliases}
     for metric, aliases in TARGET_ACCOUNTS.items()
 }
-
-# 벤포드 법칙 기대 비율 P(d) = log10(1 + 1/d), d = 1..9
-BENFORD_EXPECTED = {d: math.log10(1 + 1 / d) for d in range(1, 10)}
-
-# MAD(Mean Absolute Deviation) 적합도 등급 - Nigrini(2012) 1차 자릿수 검정 기준
-def mad_conformity_label(mad):
-    if mad < 0.006:
-        return "밀접 적합(Close conformity)"
-    if mad < 0.012:
-        return "양호 적합(Acceptable conformity)"
-    if mad < 0.015:
-        return "한계 적합(Marginal)"
-    return "부적합(Nonconformity)"
 
 
 def fetch_financial_statement(api_key, corp_code, year):
@@ -111,58 +102,40 @@ def extract_metrics(rows):
     return result
 
 
-def leading_digit(amount):
-    """금액의 첫째 유효숫자(1~9)를 반환. 0이거나 파싱 불가 시 None."""
-    v = abs(amount)
-    if v < 1:
+# Altman Z''-Score (Emerging Markets Score, Altman·Hartzell·Peck 1995) 존 판정 기준
+def zscore_zone(z):
+    if z > 2.6:
+        return "안전"
+    if z >= 1.1:
+        return "회색지대"
+    return "위험"
+
+
+def compute_zscore(metrics):
+    """Altman Z''-Score: 시가총액 대신 자본총계(장부가치)를 쓰는 비상장·이머징마켓용 변형식.
+    Z'' = 6.56*X1 + 3.26*X2 + 6.72*X3 + 1.05*X4 + 3.25
+      X1 = (유동자산-유동부채)/자산총계, X2 = 이익잉여금/자산총계,
+      X3 = 영업이익(EBIT 근사)/자산총계, X4 = 자본총계(장부가)/부채총계
+    """
+    assets = metrics.get("자산총계")
+    current_assets = metrics.get("유동자산")
+    current_liabilities = metrics.get("유동부채")
+    retained_earnings = metrics.get("이익잉여금")
+    ebit = metrics.get("영업이익")
+    equity = metrics.get("자본총계")
+    liabilities = metrics.get("부채총계")
+
+    required = [assets, current_assets, current_liabilities, retained_earnings, ebit, equity, liabilities]
+    if any(v is None for v in required) or not assets or not liabilities:
         return None
-    digits = str(int(v))
-    d = digits[0]
-    return int(d) if d != "0" else None
 
+    x1 = (current_assets - current_liabilities) / assets
+    x2 = retained_earnings / assets
+    x3 = ebit / assets
+    x4 = equity / liabilities
 
-def collect_benford_digits(all_rows):
-    """조회된 전 연도 재무제표의 당기금액(thstrm_amount)에서 첫째자리 숫자 분포를 집계."""
-    counts = {d: 0 for d in range(1, 10)}
-    total = 0
-    for row in all_rows:
-        amount_str = (row.get("thstrm_amount") or "").replace(",", "").strip()
-        if not amount_str:
-            continue
-        try:
-            amount = float(amount_str)
-        except ValueError:
-            continue
-        d = leading_digit(amount)
-        if d is None:
-            continue
-        counts[d] += 1
-        total += 1
-    return counts, total
-
-
-def build_benford_result(all_rows):
-    counts, total = collect_benford_digits(all_rows)
-    digits = []
-    mad_sum = 0.0
-    for d in range(1, 10):
-        observed_p = (counts[d] / total) if total else 0.0
-        expected_p = BENFORD_EXPECTED[d]
-        mad_sum += abs(observed_p - expected_p)
-        digits.append({
-            "digit": d,
-            "count": counts[d],
-            "observed_pct": round(observed_p * 100, 2),
-            "expected_pct": round(expected_p * 100, 2),
-        })
-    mad = (mad_sum / 9) if total else None
-    return {
-        "sample_size": total,
-        "digits": digits,
-        "mad": round(mad, 5) if mad is not None else None,
-        "conformity": mad_conformity_label(mad) if mad is not None else None,
-        "low_sample_warning": total < 300,
-    }
+    z = 6.56 * x1 + 3.26 * x2 + 6.72 * x3 + 1.05 * x4 + 3.25
+    return {"score": round(z, 2), "zone": zscore_zone(z)}
 
 
 def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
@@ -170,7 +143,6 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
     cogs = metrics.get("매출원가")
     receivables = metrics.get("매출채권")
     inventory = metrics.get("재고자산")
-    pretax = metrics.get("법인세비용차감전순이익")
     net_income = metrics.get("당기순이익")
     assets = metrics.get("자산총계")
     liabilities = metrics.get("부채총계")
@@ -210,6 +182,8 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
         if assets and net_income is not None and cfo is not None else None
     )
 
+    record["zscore"] = compute_zscore(metrics)
+
     # 전기 대비 회전율 급변 플래그
     flags = []
     if prior_metrics:
@@ -243,8 +217,47 @@ def build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics):
             "severity": "high" if record["발생액비율(%)"] >= 15 else "medium",
         })
 
+    if record["zscore"] is not None and record["zscore"]["zone"] == "위험":
+        flags.append({
+            "type": "부실위험(Z-Score)",
+            "detail": f"Altman Z''-Score {record['zscore']['score']} (위험 구간, 1.1 미만)",
+            "severity": "high",
+        })
+
     record["flags"] = flags
     return record
+
+
+def fetch_correction_history(api_key, corp_code, start_year, end_year):
+    """정기공시(사업·반기·분기보고서) 중 '정정' 보고서 이력을 조회한다."""
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bgn_de": f"{start_year}0101",
+        "end_de": f"{end_year}1231",
+        "pblntf_ty": "A",  # 정기공시
+        "page_count": "100",
+    }
+    resp = requests.get(f"{BASE_URL}/list.json", params=params, timeout=20)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("status") not in ("000", "013"):  # 013 = 조회된 데이터 없음
+        return []
+
+    items = []
+    for row in data.get("list", []):
+        report_nm = row.get("report_nm") or ""
+        if "정정" not in report_nm:
+            continue
+        rcept_no = row.get("rcept_no")
+        items.append({
+            "report_nm": report_nm,
+            "rcept_dt": row.get("rcept_dt"),
+            "flr_nm": row.get("flr_nm"),
+            "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}",
+        })
+    items.sort(key=lambda x: x.get("rcept_dt") or "", reverse=True)
+    return items
 
 
 def handle_request(query, api_key):
@@ -266,14 +279,12 @@ def handle_request(query, api_key):
         return 400, {"error": f"조회 기간은 최대 {MAX_YEAR_SPAN + 1}개년까지 가능합니다."}
 
     records = []
-    all_rows = []
     prior_metrics = None
     try:
         for year in range(start_year, end_year + 1):
             rows, fs_div = fetch_financial_statement(api_key, corp_code, year)
             if not rows:
                 continue
-            all_rows.extend(rows)
             metrics = extract_metrics(rows)
             record = build_record(corp_name, corp_code, year, metrics, fs_div, prior_metrics)
             records.append(record)
@@ -282,15 +293,18 @@ def handle_request(query, api_key):
         return 502, {"error": f"DART 조회 중 오류가 발생했습니다: {e}"}
 
     if not records:
-        return 200, {"corp_code": corp_code, "corp_name": corp_name, "records": [], "benford": None}
+        return 200, {"corp_code": corp_code, "corp_name": corp_name, "records": [], "corrections": []}
 
-    benford = build_benford_result(all_rows)
+    try:
+        corrections = fetch_correction_history(api_key, corp_code, start_year, end_year)
+    except requests.RequestException:
+        corrections = []
 
     return 200, {
         "corp_code": corp_code,
         "corp_name": corp_name,
         "records": records,
-        "benford": benford,
+        "corrections": corrections,
     }
 
 

@@ -198,10 +198,22 @@
     background:var(--surface-alt); color:var(--ink-muted); border:1px solid var(--border);
   }
   .stat-badge.strong{color:var(--ink); background:var(--accent-soft); border-color:transparent;}
-  .conformity-close{color:var(--pos);}
-  .conformity-accept{color:var(--series-2);}
-  .conformity-marginal{color:var(--warn);}
-  .conformity-non{color:var(--neg);}
+  .zone-안전{color:var(--pos);}
+  .zone-회색지대{color:var(--warn);}
+  .zone-위험{color:var(--neg);}
+
+  /* corrections */
+  .corr-list{display:flex; flex-direction:column; gap:10px;}
+  .corr-item{
+    display:flex; justify-content:space-between; align-items:baseline; gap:14px; flex-wrap:wrap;
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:13px 18px; box-shadow:var(--shadow); text-decoration:none; color:var(--ink);
+    transition:border-color .12s ease;
+  }
+  .corr-item:hover{border-color:var(--accent);}
+  .corr-item .corr-title{font-weight:700; font-size:13.5px;}
+  .corr-item .corr-date{font-size:11.5px; color:var(--ink-muted); font-weight:600; flex:none;}
+  .corr-status{color:var(--ink-muted); font-size:13px; font-weight:500; padding:10px 2px;}
 
   /* news */
   .news-list{display:flex; flex-direction:column; gap:10px;}
@@ -248,7 +260,7 @@
   <header class="masthead">
     <div class="eyebrow">Audit Analytics · DART Open API</div>
     <h1>재무제표 이상징후 탐지</h1>
-    <div class="subtitle">회사명을 검색하면 다년간 재무비율 급변, 발생액 이상치, 벤포드 법칙 적합도를 스크리닝합니다.</div>
+    <div class="subtitle">회사명을 검색하면 다년간 재무비율 급변, 발생액 이상치, 부실위험(Z-Score), 정정공시 이력을 스크리닝합니다.</div>
     <a class="nav-link" href="materiality.html">중요성금액 계산기 &amp; 표본추출 도구 →</a>
   </header>
 
@@ -273,7 +285,7 @@
         <button class="btn-primary" id="analyzeBtn" disabled>분석하기</button>
       </div>
       <div id="chipRow"></div>
-      <div class="search-hint">최근 5개년 이상 조회할수록 벤포드 법칙 표본이 충분해져 분석 신뢰도가 높아집니다.</div>
+      <div class="search-hint">최근 5개년 이상 조회할수록 추이·Z-Score 판단의 신뢰도가 높아집니다.</div>
     </div>
   </section>
 
@@ -305,7 +317,7 @@
 
     <section>
       <div class="section-head">
-        <h2>이상징후 추이 &amp; 벤포드 법칙</h2>
+        <h2>이상징후 추이 &amp; 부실위험(Z-Score)</h2>
         <span class="hint" id="trendHint"></span>
       </div>
       <div class="chart-grid">
@@ -316,12 +328,20 @@
           <div id="turnoverLegend" class="legend"></div>
         </div>
         <div class="chart-card">
-          <h3>벤포드 법칙 — 첫째자리 숫자 분포</h3>
-          <div class="chart-sub" id="benfordSub">실제 관측 비율(막대) vs 기대 비율(선)</div>
-          <svg id="benfordChart" viewBox="0 0 460 220" role="img" aria-label="벤포드 법칙 첫째자리 숫자 분포 그래프"></svg>
-          <div id="benfordBadges" class="badge-row"></div>
+          <h3>Altman Z''-Score 추이</h3>
+          <div class="chart-sub">장부가 기준 부실위험 예측모형 (2.6↑ 안전 · 1.1~2.6 회색지대 · 1.1↓ 위험)</div>
+          <svg id="zscoreChart" viewBox="0 0 460 220" role="img" aria-label="Z-Score 추이 선그래프"></svg>
+          <div id="zscoreBadges" class="badge-row"></div>
         </div>
       </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>정정공시 이력</h2>
+        <span class="hint">사업·반기·분기보고서 중 [기재정정] 이력 · 재무제표 신뢰성 참고 지표</span>
+      </div>
+      <div id="corrList" class="corr-list"></div>
     </section>
 
     <section>
@@ -341,6 +361,7 @@
               <th>영업이익률</th>
               <th>순이익률</th>
               <th>부채비율</th>
+              <th>Z-Score</th>
               <th>위험 신호</th>
             </tr>
           </thead>
@@ -351,8 +372,8 @@
   </div>
 
   <footer>
-    <div>ⓘ 회전율은 기말잔액 기준 단순화 지표이며, 벤포드 법칙은 표본 300건 미만일 경우 신뢰도가 낮습니다.</div>
-    <div>본 도구는 학습·포트폴리오 목적의 1차 스크리닝 참고자료이며, 실제 감사 절차나 부정 판단의 근거로 사용할 수 없습니다.</div>
+    <div>ⓘ 회전율은 기말잔액 기준 단순화 지표이며, Z-Score는 시가총액 대신 자본총계(장부가)를 쓰는 비상장·이머징마켓용 변형식(Altman·Hartzell·Peck 1995)으로 실제 부도예측력을 보장하지 않습니다.</div>
+    <div>본 도구는 학습·포트폴리오 목적의 1차 스크리닝 참고자료이며, 실제 감사 절차나 부정 판단, 부도예측의 근거로 사용할 수 없습니다.</div>
   </footer>
 </div>
 
@@ -367,7 +388,7 @@ const endYearInput = $("endYear");
 
 let corpList = [];
 let selected = null;
-let DATA = null; // {corp_name, corp_code, records, benford}
+let DATA = null; // {corp_name, corp_code, records, corrections}
 let activeSuggestionIndex = -1;
 
 (function initYears(){
@@ -545,7 +566,8 @@ function renderResults(){
   renderFlagBanner(records);
   renderKpiCards(latest, prev);
   renderTurnoverChart(records);
-  renderBenfordChart(DATA.benford);
+  renderZScoreChart(records);
+  renderCorrections(DATA.corrections);
   renderTable(records);
 }
 
@@ -580,11 +602,13 @@ function renderKpiCards(latest, prev){
     const d = cur - prevV;
     return `<span class="delta ${d>=0?'up':'down'}">${d>=0?'▲':'▼'} ${Math.abs(d).toFixed(2)}</span>`;
   };
+  const z = latest.zscore;
   const cards = [
     {label:"매출채권회전율", value: fmtNum(latest["매출채권회전율"])+"회", delta: prev?pctDelta(latest["매출채권회전율"], prev["매출채권회전율"]):"", sub:"매출액 ÷ 기말 매출채권"},
     {label:"재고자산회전율", value: fmtNum(latest["재고자산회전율"])+"회", delta: prev?pctDelta(latest["재고자산회전율"], prev["재고자산회전율"]):"", sub:"매출원가 ÷ 기말 재고자산"},
     {label:"발생액비율", value: fmtPct(latest["발생액비율(%)"]), delta:"", sub:"(순이익 − 영업현금흐름) ÷ 자산총계"},
     {label:"순이익률", value: fmtPct(latest["순이익률(%)"]), delta:"", sub:"당기순이익 ÷ 매출액"},
+    {label:"Z-Score", value: z ? `${z.score} <span class="zone-${z.zone}">(${z.zone})</span>` : "—", delta:"", sub:"Altman Z''-Score (부실위험)"},
   ];
   grid.innerHTML = cards.map(c => `
     <div class="kpi-card">
@@ -635,63 +659,78 @@ function renderTurnoverChart(records){
     <span><i style="background:var(--series-2)"></i>재고자산회전율</span>`;
 }
 
-function renderBenfordChart(benford){
-  const svg = $("benfordChart");
-  const badges = $("benfordBadges");
-  if(!benford || benford.sample_size === 0){
+function renderZScoreChart(records){
+  const svg = $("zscoreChart");
+  const badges = $("zscoreBadges");
+  const pts_ = records.filter(r => r.zscore != null);
+  if(pts_.length === 0){
     svg.innerHTML = "";
-    badges.innerHTML = `<span class="stat-badge">분석할 데이터가 부족합니다.</span>`;
+    badges.innerHTML = `<span class="stat-badge">Z-Score를 계산할 데이터가 부족합니다 (유동자산·유동부채·이익잉여금 등 필요).</span>`;
     return;
   }
   const W=460,H=220,padL=34,padR=10,padT=14,padB=28;
   const plotW=W-padL-padR, plotH=H-padT-padB;
-  const maxPct = Math.max(...benford.digits.map(d=>Math.max(d.observed_pct, d.expected_pct))) * 1.15 || 40;
-  const groupW = plotW/9;
-  const barW = Math.min(26, groupW*0.55);
-  const xFor = i => padL + groupW*i + groupW/2;
-  const yFor = v => padT + plotH - (v/maxPct)*plotH;
+  const yrs = records.map(r=>r["연도"]);
+  const vals = pts_.map(r=>r.zscore.score);
+  const minV = Math.min(...vals, 1.1) - 1;
+  const maxV = Math.max(...vals, 2.6) + 1;
+  const range = maxV - minV || 1;
+  const xFor = i => yrs.length>1 ? padL + (i/(yrs.length-1))*plotW : padL+plotW/2;
+  const yFor = v => padT + plotH - ((v-minV)/range)*plotH;
 
   let svgContent = "";
-  const steps=4;
-  for(let i=0;i<=steps;i++){
-    const v = maxPct/steps*i;
+  // 위험/회색지대/안전 기준선
+  [[1.1,"var(--neg)"],[2.6,"var(--pos)"]].forEach(([v,color])=>{
     const y = yFor(v);
-    svgContent += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke-width="1"/>`;
-    svgContent += `<text class="axis-label" x="${padL-6}" y="${y+3}" text-anchor="end">${v.toFixed(0)}%</text>`;
-  }
-
-  benford.digits.forEach((d,i)=>{
-    const bh = (d.observed_pct/maxPct)*plotH;
-    const x = xFor(i) - barW/2;
-    const y = padT+plotH-bh;
-    svgContent += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" fill="var(--series-1)" rx="3"/>`;
-    svgContent += `<text class="axis-label" x="${xFor(i)}" y="${H-8}" text-anchor="middle">${d.digit}</text>`;
+    svgContent += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${color}" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>`;
+    svgContent += `<text class="axis-label" x="${padL-6}" y="${y+3}" text-anchor="end">${v}</text>`;
   });
 
-  const expPts = benford.digits.map((d,i)=>[xFor(i), yFor(d.expected_pct)]);
-  const expPath = expPts.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
-  svgContent += `<path d="${expPath}" fill="none" stroke="var(--neg)" stroke-width="2" stroke-dasharray="4,3"/>`;
-  expPts.forEach(p=>{ svgContent += `<circle cx="${p[0]}" cy="${p[1]}" r="2.6" fill="var(--neg)"/>`; });
+  const pts = records.map((r,i)=> r.zscore != null ? [xFor(i), yFor(r.zscore.score)] : null).filter(p=>p);
+  if(pts.length){
+    const path = pts.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+    svgContent += `<path d="${path}" fill="none" stroke="var(--series-1)" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  records.forEach((r,i)=>{
+    if(r.zscore == null) return;
+    const color = r.zscore.zone === "안전" ? "var(--pos)" : r.zscore.zone === "위험" ? "var(--neg)" : "var(--warn)";
+    svgContent += `<circle cx="${xFor(i)}" cy="${yFor(r.zscore.score)}" r="4" fill="${color}"/>`;
+  });
 
-  svgContent += `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--border)" stroke-width="1.5"/>`;
+  yrs.forEach((yr,i)=>{
+    svgContent += `<text class="axis-label" x="${xFor(i)}" y="${H-8}" text-anchor="middle">${yr}</text>`;
+  });
   svg.innerHTML = svgContent;
 
-  const conformityClass = benford.mad < 0.006 ? "conformity-close"
-    : benford.mad < 0.012 ? "conformity-accept"
-    : benford.mad < 0.015 ? "conformity-marginal" : "conformity-non";
-
+  const latestZ = [...pts_].pop().zscore;
   badges.innerHTML = `
-    <span class="stat-badge strong">표본 ${benford.sample_size.toLocaleString("ko-KR")}건</span>
-    <span class="stat-badge strong">MAD ${benford.mad.toFixed(4)}</span>
-    <span class="stat-badge ${conformityClass}">${benford.conformity}</span>
-    ${benford.low_sample_warning ? `<span class="stat-badge">⚠ 표본 300건 미만 — 신뢰도 낮음</span>` : ""}
-    <span class="stat-badge">— 빨간 점선: 기대비율(log₁₀(1+1/d))</span>`;
+    <span class="stat-badge strong">최신 Z-Score ${latestZ.score}</span>
+    <span class="stat-badge zone-${latestZ.zone}">${latestZ.zone}</span>
+    <span class="stat-badge">● 안전 &nbsp;● 회색지대 &nbsp;● 위험</span>`;
+}
+
+function renderCorrections(corrections){
+  const list = $("corrList");
+  if(!corrections || corrections.length === 0){
+    list.innerHTML = `<div class="corr-status">조회 기간 내 정정공시 이력이 없습니다.</div>`;
+    return;
+  }
+  list.innerHTML = corrections.map(c => {
+    const d = c.rcept_dt;
+    const dateStr = d && d.length === 8 ? `${d.slice(0,4)}.${d.slice(4,6)}.${d.slice(6,8)}` : d;
+    return `
+      <a class="corr-item" href="${c.url}" target="_blank" rel="noopener noreferrer">
+        <span class="corr-title">${c.report_nm}</span>
+        <span class="corr-date">${dateStr}</span>
+      </a>`;
+  }).join("");
 }
 
 function renderTable(records){
   const tbody = $("dataBody");
   tbody.innerHTML = records.map(r => {
     const flagsHtml = (r.flags||[]).map(f => `<span class="flag-mini ${f.severity}">${f.type}</span>`).join("");
+    const z = r.zscore;
     return `<tr>
       <td>${r["연도"]}</td>
       <td><span class="tag">${r["재무제표구분"]}</span></td>
@@ -701,6 +740,7 @@ function renderTable(records){
       <td>${fmtPct(r["영업이익률(%)"])}</td>
       <td>${fmtPct(r["순이익률(%)"])}</td>
       <td>${fmtPct(r["부채비율(%)"])}</td>
+      <td>${z ? `${z.score} <span class="zone-${z.zone}">(${z.zone})</span>` : '<span class="cell-empty">—</span>'}</td>
       <td>${flagsHtml || '<span class="cell-empty">—</span>'}</td>
     </tr>`;
   }).join("");
