@@ -25,7 +25,7 @@ MAX_YEAR_SPAN = 7
 # 주의: 당기 손실(적자)인 회사는 DART 공시에서 "OO이익" 대신 "OO손익"/"OO손실"로
 # 계정명이 바뀌는 경우가 있어 별칭에 함께 포함한다. (예: 삼성SDI 2025 영업손익)
 TARGET_ACCOUNTS = {
-    "매출액": ["매출액", "수익(매출액)", "영업수익"],
+    "매출액": ["매출액", "매출", "수익(매출액)", "영업수익"],
     "매출원가": ["매출원가"],
     "영업이익": ["영업이익", "영업이익(손실)", "영업손익", "영업손실"],
     "법인세비용차감전순이익": [
@@ -47,6 +47,17 @@ TARGET_ACCOUNTS = {
         "영업활동으로인한현금흐름", "영업활동현금흐름",
         "영업활동으로인한순현금흐름", "영업활동으로인한현금흐름(유출)",
     ],
+}
+
+def _normalize(name):
+    """계정과목명 비교용 정규화: 공백만 제거(같은 계정을 회사마다 "OO 합계"/"OO합계"처럼
+    띄어쓰기만 다르게 공시하는 경우가 많아, 정확히 일치하는 이름을 못 찾는 문제를 줄인다)."""
+    return (name or "").replace(" ", "").replace("　", "").strip()
+
+
+TARGET_ACCOUNTS_NORMALIZED = {
+    metric: {_normalize(alias) for alias in aliases}
+    for metric, aliases in TARGET_ACCOUNTS.items()
 }
 
 # 벤포드 법칙 기대 비율 P(d) = log10(1 + 1/d), d = 1..9
@@ -84,7 +95,7 @@ def fetch_financial_statement(api_key, corp_code, year):
 def extract_metrics(rows):
     result = {k: None for k in TARGET_ACCOUNTS}
     for row in rows:
-        account_nm = (row.get("account_nm") or "").strip()
+        account_nm = _normalize(row.get("account_nm"))
         amount_str = (row.get("thstrm_amount") or "").replace(",", "").strip()
         if not amount_str:
             continue
@@ -92,7 +103,7 @@ def extract_metrics(rows):
             amount = float(amount_str)
         except ValueError:
             continue
-        for metric, aliases in TARGET_ACCOUNTS.items():
+        for metric, aliases in TARGET_ACCOUNTS_NORMALIZED.items():
             if result[metric] is not None:
                 continue
             if account_nm in aliases:
