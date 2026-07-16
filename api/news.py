@@ -12,10 +12,13 @@ import html
 import json
 import os
 import re
+import time
 import requests
 
 NAVER_URL = "https://openapi.naver.com/v1/search/news.json"
 DISPLAY_COUNT = 6
+REQUEST_TIMEOUT = 6
+MAX_ATTEMPTS = 3
 
 
 def strip_html(text):
@@ -31,9 +34,18 @@ def fetch_news(client_id, client_secret, query):
         "X-Naver-Client-Secret": client_secret,
     }
     params = {"query": query, "display": DISPLAY_COUNT, "sort": "date"}
-    resp = requests.get(NAVER_URL, headers=headers, params=params, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+
+    last_error = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.get(NAVER_URL, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            last_error = e
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(0.5 * attempt)
+    raise last_error
 
 
 def handle_request(query, client_id, client_secret):
@@ -46,8 +58,8 @@ def handle_request(query, client_id, client_secret):
 
     try:
         data = fetch_news(client_id, client_secret, corp_name)
-    except requests.RequestException as e:
-        return 502, {"error": f"네이버 뉴스 검색 중 오류가 발생했습니다: {e}"}
+    except requests.RequestException:
+        return 502, {"error": "뉴스 서버 연결이 원활하지 않습니다. 잠시 후 다시 시도해 주세요."}
 
     items = []
     for item in data.get("items", []):
