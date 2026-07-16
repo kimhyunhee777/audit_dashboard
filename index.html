@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>재무제표 이상징후 탐지 — Audit Analytics</title>
+<title>감사계획 위험평가 — Audit Planning</title>
 <style>
   :root{
     --bg:#F2F4F6;
@@ -294,28 +294,13 @@
   .cat-badge.cat-owner{background:var(--accent-soft); color:var(--accent);}
   .cat-badge.cat-fraud{background:var(--neg-soft); color:var(--neg);}
   .cat-badge.cat-other{background:var(--surface-alt); color:var(--ink-muted); border:1px solid var(--border);}
-
-  /* pdf export */
-  .btn-secondary{
-    padding:9px 16px; font-size:13px; font-weight:700; border-radius:12px;
-    border:1px solid var(--border); background:var(--surface); color:var(--ink); cursor:pointer;
-  }
-  .btn-secondary:hover{border-color:var(--accent); color:var(--accent);}
-  .result-actions{display:flex; justify-content:flex-end; margin-bottom:14px;}
-
-  @media print{
-    .search-card, #newsSection, .result-actions, header .nav-link, .search-hint{ display:none !important; }
-    body{background:#fff;}
-    .kpi-card, .chart-card, .risk-card, .search-card, .table-scroll{ box-shadow:none; border:1px solid #ccc; }
-    section{ break-inside:avoid; }
-  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="masthead">
-    <div class="eyebrow">Audit Analytics · DART Open API</div>
-    <h1>재무제표 이상징후 탐지</h1>
+    <div class="eyebrow">Audit Planning · DART Open API</div>
+    <h1>감사계획 위험평가</h1>
     <div class="subtitle">회사명을 검색하면 다년간 재무비율 급변, 발생액 이상치, 부실위험(Z-Score), 정정공시 이력을 스크리닝합니다.</div>
     <a class="nav-link" href="materiality.html">중요성금액 계산기 &amp; 표본추출 도구 →</a>
   </header>
@@ -348,7 +333,7 @@
   <section id="newsSection" style="display:none;">
     <div class="section-head">
       <h2>최근 관련 뉴스</h2>
-      <span class="hint">감사 착수 전 참고용 · 보도 사실관계는 별도 확인 필요</span>
+      <span class="hint">감사 착수 전 참고용</span>
     </div>
     <div id="newsList" class="news-list"></div>
   </section>
@@ -361,16 +346,11 @@
   <div id="emptyState" class="empty-state">회사를 검색해 선택한 뒤 <b>분석하기</b>를 눌러주세요.</div>
 
   <div id="resultsArea">
-    <div class="result-actions">
-      <button class="btn-secondary" id="pdfBtn">PDF 워킹페이퍼 생성</button>
-    </div>
-
     <div id="flagBanner" class="flag-banner"></div>
 
     <section id="topRisksSection">
       <div class="section-head">
         <h2>이번 감사 TOP5 위험계정</h2>
-        <span class="hint">규칙기반 스크리닝 · 감사절차 추천 (생성형 AI 미사용)</span>
       </div>
       <div class="risk-grid" id="riskGrid"></div>
     </section>
@@ -407,7 +387,7 @@
     <section>
       <div class="section-head">
         <h2 id="growthHeading">전년 대비 계정 증감률</h2>
-        <span class="hint">매출증가율 대비 크게 늘어난 계정을 자동으로 표시합니다 · "—"는 오류가 아니라 업종 특성상 해당 계정이 없는 경우입니다(예: 건설·엔지니어링은 재고자산 대신 미청구공사를 사용)</span>
+        <span class="hint">매출증가율 대비 크게 늘어난 계정을 자동으로 표시합니다 · "—"는 오류가 아니라 업종 특성상 해당 계정이 없는 경우입니다</span>
       </div>
       <div class="table-scroll">
         <table class="growth-table" id="growthTable">
@@ -886,8 +866,6 @@ function renderTable(records){
     </tr>`;
   }).join("");
 }
-
-$("pdfBtn").addEventListener("click", () => window.print());
 </script>
 </body>
 </html>
