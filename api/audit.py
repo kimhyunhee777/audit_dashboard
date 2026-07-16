@@ -25,7 +25,38 @@ BASE_URL = "https://opendart.fss.or.kr/api"
 REPORT_CODE_ANNUAL = "11011"
 MAX_YEAR_SPAN = 7
 
-# 계정과목명 매칭용 별칭 (재무상태표/손익계산서/현금흐름표 통합 스캔)
+# DART 표준계정코드(account_id, IFRS 택소노미) 매칭 - 1순위.
+# 같은 개념이라도 회사마다 계정명 표기가 "매출액"/"매출", "영업이익"/"영업손익",
+# "자산총계"/"자산 합계"처럼 제각각이지만, account_id는 XBRL 표준 코드라 동일하다.
+# (2015년 이후 사업보고서부터 DART가 XBRL 태깅을 지원하므로 이 API가 다루는
+# 전체 구간에서 사실상 신뢰 가능하다.)
+ACCOUNT_ID_ALIASES = {
+    "매출액": ["ifrs-full_Revenue"],
+    "매출원가": ["ifrs-full_CostOfSales"],
+    "영업이익": ["dart_OperatingIncomeLoss"],
+    "법인세비용차감전순이익": ["ifrs-full_ProfitLossBeforeTax"],
+    "당기순이익": ["ifrs-full_ProfitLoss"],
+    "매출채권": [
+        "ifrs-full_TradeAndOtherCurrentReceivables", "ifrs-full_CurrentTradeReceivables",
+        "dart_ShortTermTradeReceivable", "dart_ShortTermTradeReceivables",
+    ],
+    "재고자산": ["ifrs-full_Inventories"],
+    "기타채권": ["dart_CurrentNontradeReceivables", "dart_OtherCurrentReceivables", "dart_OtherReceivables"],
+    "매입채무": [
+        "ifrs-full_TradeAndOtherCurrentPayables", "ifrs-full_TradeAndOtherCurrentPayablesToTradeSuppliers",
+        "dart_ShortTermTradePayables", "dart_ShortTermTradePayable",
+    ],
+    "유동자산": ["ifrs-full_CurrentAssets"],
+    "유동부채": ["ifrs-full_CurrentLiabilities"],
+    "이익잉여금": ["ifrs-full_RetainedEarnings"],
+    "자산총계": ["ifrs-full_Assets"],
+    "부채총계": ["ifrs-full_Liabilities"],
+    "자본총계": ["ifrs-full_Equity"],
+    "영업활동현금흐름": ["ifrs-full_CashFlowsFromUsedInOperatingActivities"],
+}
+NON_STANDARD_ACCOUNT_ID = "-표준계정코드 미사용-"
+
+# 계정과목명 매칭용 별칭 (표준코드가 없는 옛 공시·비표준 캡션을 위한 2순위 폴백)
 # 주의: 당기 손실(적자)인 회사는 DART 공시에서 "OO이익" 대신 "OO손익"/"OO손실"로
 # 계정명이 바뀌는 경우가 있어 별칭에 함께 포함한다. (예: 삼성SDI 2025 영업손익)
 TARGET_ACCOUNTS = {
@@ -105,19 +136,41 @@ def fetch_financial_statement(api_key, corp_code, year):
 
 def extract_metrics(rows):
     result = {k: None for k in TARGET_ACCOUNTS}
-    for row in rows:
-        account_nm = _normalize(row.get("account_nm"))
+
+    def parse_amount(row):
         amount_str = (row.get("thstrm_amount") or "").replace(",", "").strip()
         if not amount_str:
-            continue
+            return None
         try:
-            amount = float(amount_str)
+            return float(amount_str)
         except ValueError:
+            return None
+
+    # 1순위: 표준계정코드(account_id) 매칭 - 회사별 계정명 표기 차이의 영향을 받지 않는다.
+    for row in rows:
+        account_id = row.get("account_id") or ""
+        if not account_id or account_id == NON_STANDARD_ACCOUNT_ID:
             continue
-        for metric, aliases in TARGET_ACCOUNTS_NORMALIZED.items():
+        amount = parse_amount(row)
+        if amount is None:
+            continue
+        for metric, ids in ACCOUNT_ID_ALIASES.items():
             if result[metric] is not None:
                 continue
-            if account_nm in aliases:
+            if account_id in ids:
+                result[metric] = amount
+
+    # 2순위: 표준코드가 없거나 매칭 실패한 항목은 계정명 텍스트로 폴백.
+    for row in rows:
+        remaining = [m for m in TARGET_ACCOUNTS if result[m] is None]
+        if not remaining:
+            break
+        account_nm = _normalize(row.get("account_nm"))
+        amount = parse_amount(row)
+        if amount is None:
+            continue
+        for metric in remaining:
+            if account_nm in TARGET_ACCOUNTS_NORMALIZED[metric]:
                 result[metric] = amount
     return result
 
