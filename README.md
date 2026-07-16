@@ -16,19 +16,26 @@
 - 금액단위표본(MUS)·속성표본 표본수 계산 (신뢰계수 RF = −ln(1−신뢰수준), 포아송 근사)
 - 회사 검색으로 재무 데이터 자동 불러오기 지원
 
+### 3. 관련 뉴스 스캔 (`index.html`)
+- 회사 선택 시 네이버 뉴스 검색 API로 최신 관련 뉴스(제목·요약·링크)를 함께 표시
+- 감사 착수 전 클라이언트 관련 이슈(소송, 실적, 오너 리스크 등)를 빠르게 스캔하는 용도
+
 ## 로컬 실행
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # DART_API_KEY 입력
+cp .env.example .env   # DART_API_KEY, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET 입력
 python dev_server.py
 # http://localhost:8000
 ```
 
+네이버 API 키는 [네이버 개발자센터](https://developers.naver.com/apps/#/register)에서
+"검색" API를 선택해 애플리케이션을 등록하면 무료로 즉시 발급됩니다.
+
 ## 배포
 
-Vercel의 Python 서버리스 함수(`api/audit.py`)로 배포합니다. 환경변수 `DART_API_KEY`를
-Vercel 프로젝트 설정에 등록하세요.
+Vercel의 Python 서버리스 함수(`api/audit.py`, `api/news.py`)로 배포합니다. 환경변수
+`DART_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`을 Vercel 프로젝트 설정에 등록하세요.
 
 ## 면책 조항
 

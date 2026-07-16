@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from audit import handle_request as handle_audit  # noqa: E402
+from news import handle_request as handle_news  # noqa: E402
 
 
 class DevHandler(SimpleHTTPRequestHandler):
@@ -25,6 +26,15 @@ class DevHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/audit":
             query = parse_qs(parsed.query)
             status, payload = handle_audit(query, os.environ.get("DART_API_KEY"))
+            self._send_json(payload, status)
+            return
+        if parsed.path == "/api/news":
+            query = parse_qs(parsed.query)
+            status, payload = handle_news(
+                query,
+                os.environ.get("NAVER_CLIENT_ID"),
+                os.environ.get("NAVER_CLIENT_SECRET"),
+            )
             self._send_json(payload, status)
             return
         super().do_GET()
